@@ -3,6 +3,13 @@ using Komikai_pilnas.Datat;
 using Microsoft.Azure.Search.Models;
 using SharpGrip.FluentValidation.AutoValidation.Endpoints.Extensions;
 using Microsoft.EntityFrameworkCore;
+using Komikai_pilnas.Auth.Model;
+using System.Data;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
+using System.IdentityModel.Tokens.Jwt;
+using Microsoft.AspNetCore.Http;
+using System.Net.Http;
 
 namespace Komikai_pilnas
 {
@@ -32,9 +39,9 @@ namespace Komikai_pilnas
                 return TypedResults.Ok(comedian.ToDto());
             });
 
-            comediansGroup.MapPost("/comedians", async (HttpRequest request, CreateComedianDto dto, ForumDbContext dbContext) => {
+            comediansGroup.MapPost("/comedians", [Authorize(Roles = ForumRoles.Admin)] async (HttpRequest request, CreateComedianDto dto, ForumDbContext dbContext, HttpContext httpContext) => {
 
-                var comedian = new Comedian { Name = dto.Name, Description = dto.Description };
+                var comedian = new Comedian { Name = dto.Name, Description = dto.Description,UserId = httpContext.User.FindFirstValue(JwtRegisteredClaimNames.Sub)};
                 dbContext.Comedians.Add(comedian);
 
                 await dbContext.SaveChangesAsync();
@@ -74,7 +81,7 @@ namespace Komikai_pilnas
                  }
              }).WithName("CreateComedian");*/
 
-            comediansGroup.MapPut("/comedians/{comedianId}", async (UpdateComedianDto dto, int comedianId, ForumDbContext dbContext) =>
+            comediansGroup.MapPut("/comedians/{comedianId}", [Authorize(Roles = ForumRoles.Admin)] async (UpdateComedianDto dto, int comedianId, ForumDbContext dbContext, HttpContext httpContext) =>
             {
 
                 var comedian = await dbContext.Comedians.FindAsync(comedianId);
@@ -94,7 +101,7 @@ namespace Komikai_pilnas
 
             });
 
-            comediansGroup.MapDelete("/comedians/{comedianId}", async (int comedianId, ForumDbContext dbContext) =>
+            comediansGroup.MapDelete("/comedians/{comedianId}", [Authorize(Roles = ForumRoles.Admin)]  async (int comedianId, ForumDbContext dbContext) =>
             {
                 var comedian = await dbContext.Comedians.FindAsync(comedianId);
                 if (comedian == null)
@@ -165,7 +172,7 @@ namespace Komikai_pilnas
                 return Results.Ok(set.ToDto());
             });
 
-            setsGroup.MapPost("/sets", async (HttpRequest request, int comedianId, CreateSetDto dto, ForumDbContext dbContext) => {
+            setsGroup.MapPost("/sets", [Authorize(Roles = ForumRoles.Admin)] async (HttpRequest request, int comedianId, CreateSetDto dto, ForumDbContext dbContext, HttpContext httpContext) => {
 
 
                 var comedian = await dbContext.Comedians.FindAsync(comedianId);
@@ -175,7 +182,7 @@ namespace Komikai_pilnas
                     return Results.NotFound($"No comedian found with ID {comedianId}.");
                 }
 
-                var set = new Set { Title = dto.Title, Body = dto.Body, CreatedAt = DateTimeOffset.UtcNow, Comedian = comedian };
+                var set = new Set { Title = dto.Title, Body = dto.Body, CreatedAt = DateTimeOffset.UtcNow, Comedian = comedian, UserId = httpContext.User.FindFirstValue(JwtRegisteredClaimNames.Sub) };
                 dbContext.Sets.Add(set);
 
                 await dbContext.SaveChangesAsync();
@@ -184,7 +191,7 @@ namespace Komikai_pilnas
 
             });
 
-            setsGroup.MapPut("/sets/{setId}", async (HttpRequest request, int comedianId, int setId, UpdateSetDto dto, ForumDbContext dbContext) =>
+            setsGroup.MapPut("/sets/{setId}", [Authorize(Roles = ForumRoles.Admin)] async (HttpRequest request, int comedianId, int setId, UpdateSetDto dto, ForumDbContext dbContext) =>
             {
 
                 var set = await dbContext.Sets.FirstOrDefaultAsync(s => s.Comedian.Id == comedianId && s.Id == setId);
@@ -203,7 +210,7 @@ namespace Komikai_pilnas
 
             });
 
-            setsGroup.MapDelete("/sets/{setId}", async (int comedianId, int setId, ForumDbContext dbContext) =>
+            setsGroup.MapDelete("/sets/{setId}", [Authorize(Roles = ForumRoles.Admin)] async (int comedianId, int setId, ForumDbContext dbContext) =>
             {
                 var set = await dbContext.Sets.FirstOrDefaultAsync(s => s.Comedian.Id == comedianId && s.Id == setId);
                 if (set == null)
@@ -273,7 +280,7 @@ namespace Komikai_pilnas
                 return Results.Ok(comment.ToDto());
             });
 
-            commentsGroup.MapPost("/comments", async (HttpRequest request, int comedianId, int setId, CreateCommentDto dto, ForumDbContext dbContext) => {
+            commentsGroup.MapPost("/comments", [Authorize(Roles = ForumRoles.ForumUser)] async (HttpRequest request, int comedianId, int setId, CreateCommentDto dto, ForumDbContext dbContext, HttpContext httpContext) => {
 
 
                 var comedian = await dbContext.Comedians.FindAsync(comedianId);
@@ -289,7 +296,7 @@ namespace Komikai_pilnas
                     return Results.NotFound($"Set with ID {setId} not found for comedian with ID {comedianId}.");
                 }
 
-                var comment = new Comment { Content = dto.Content, CreatedAt = DateTimeOffset.UtcNow, Set = set, Score= dto.Score };
+                var comment = new Comment { Content = dto.Content, CreatedAt = DateTimeOffset.UtcNow, Set = set, Score= dto.Score, UserId = httpContext.User.FindFirstValue(JwtRegisteredClaimNames.Sub) };
                 dbContext.Comments.Add(comment);
 
                 await dbContext.SaveChangesAsync();
@@ -298,7 +305,7 @@ namespace Komikai_pilnas
 
             });
 
-            commentsGroup.MapPut("/comments/{commentId}", async (int comedianId, int setId, int commentId, UpdateCommentDto dto, ForumDbContext dbContext) =>
+            commentsGroup.MapPut("/comments/{commentId}", [Authorize] async (int comedianId, int setId, int commentId, UpdateCommentDto dto, ForumDbContext dbContext,HttpContext httpContext) =>
             {
 
                 var comedian = await dbContext.Comedians.FindAsync(comedianId);
@@ -316,6 +323,10 @@ namespace Komikai_pilnas
                     return Results.NotFound($"Comment with ID {commentId} not found");
                 }
 
+                if(!httpContext.User.IsInRole(ForumRoles.Admin)&& httpContext.User.FindFirstValue(JwtRegisteredClaimNames.Sub)!= comment.UserId)
+                {
+                    return Results.Forbid();
+                }
                 comment.Content = dto.Content;
                 comment.Score = dto.Score;
 
@@ -326,12 +337,16 @@ namespace Komikai_pilnas
 
             });
 
-            commentsGroup.MapDelete("/comments/{commentId}", async (int comedianId, int setId, int commentId, ForumDbContext dbContext) =>
+            commentsGroup.MapDelete("/comments/{commentId}", [Authorize] async (int comedianId, int setId, int commentId, ForumDbContext dbContext, HttpContext httpContext) =>
             {
                 var comment = await dbContext.Comments.FirstOrDefaultAsync(c => c.Set.Id == setId && c.Set.Comedian.Id == comedianId && c.Id == commentId);
                 if (comment == null)
                 {
                     return Results.NotFound($"Comment with ID {commentId} not found");
+                }
+                if (!httpContext.User.IsInRole(ForumRoles.Admin) && httpContext.User.FindFirstValue(JwtRegisteredClaimNames.Sub) != comment.UserId)
+                {
+                    return Results.Forbid();
                 }
                 dbContext.Comments.Remove(comment);
                 await dbContext.SaveChangesAsync();

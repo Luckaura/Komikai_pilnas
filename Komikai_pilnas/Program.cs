@@ -14,6 +14,12 @@ using SharpGrip.FluentValidation.AutoValidation.Endpoints.Results;
 using SharpGrip.FluentValidation.AutoValidation.Shared.Extensions;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
+using Komikai_pilnas.Auth.Model;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using Komikai_pilnas.Auth;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,13 +29,51 @@ builder.Services.AddFluentValidationAutoValidation(configuration =>
 {
     configuration.OverrideDefaultResultFactoryWith<ProblemDetailsResultFactory>();
 });
+
 builder.Services.AddResponseCaching();
+builder.Services.AddTransient<JwtTokenService>();
+builder.Services.AddTransient<SessionService>();
+builder.Services.AddScoped<AuthSeeder>();
+
+builder.Services.AddIdentity<ForumUser, IdentityRole>()
+    .AddEntityFrameworkStores<ForumDbContext>()
+    .AddDefaultTokenProviders();
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+
+}).AddJwtBearer(options =>
+{
+    options.MapInboundClaims = false;
+    options.TokenValidationParameters.ValidAudience = builder.Configuration["Jwt:ValidAudience"];
+    options.TokenValidationParameters.ValidIssuer = builder.Configuration["Jwt:ValidIssuer"];
+    options.TokenValidationParameters.IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["JWT:Secret"]));
+});
+
+builder.Services.AddAuthorization();
+
 var app = builder.Build();
+
+using var scope = app.Services.CreateScope();
+//var dbContext = scope.ServiceProvider.GetRequiredService<ForumDbContext>();
+
+
+var dbSeeder = scope.ServiceProvider.GetRequiredService<AuthSeeder>();
+await dbSeeder.SeedAsync();
+
+app.AddAuthApi();
+
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.AddComedianApi();
 app.AddSetsApi();
 app.AddCommentsApi();
+
+app.UseAuthentication();
+app.UseAuthorization();
 app.Run();
 
 public record ComedianDto(int Id, string Name, string Description);
