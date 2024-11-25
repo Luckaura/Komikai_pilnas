@@ -58,7 +58,8 @@ builder.Services.AddAuthorization();
 var app = builder.Build();
 
 using var scope = app.Services.CreateScope();
-//var dbContext = scope.ServiceProvider.GetRequiredService<ForumDbContext>();
+var dbContext = scope.ServiceProvider.GetRequiredService<ForumDbContext>();
+dbContext.Database.Migrate();
 
 
 var dbSeeder = scope.ServiceProvider.GetRequiredService<AuthSeeder>();
